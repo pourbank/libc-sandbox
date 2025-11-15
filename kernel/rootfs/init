@@ -1,0 +1,11 @@
+#!/bin/sh
+
+mount -t proc none /proc
+mount -t sysfs none /sys
+mknod /dev/console c 5 1
+mknod /dev/ttyS0 c 4 64
+
+export ENV='/etc/banner'
+alias clear='command clear && /bin/banner'
+
+exec setsid cttyhack /bin/sh

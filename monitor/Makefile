@@ -42,3 +42,5 @@ clean:
 	@$(MAKE) --no-print-directory -C $(KDIR) M=$(PWD) clean
 	@rm -rf $(OUTPUT_DIR)
 	@rm -f $(POLICY_LOCAL_FILE)
+	@rm -f $(MODULE_DEST_DIR)/$(MODULE_NAME).ko
+	@rm -f $(POLICY_DEST_DIR)/$(POLICY_LOCAL_FILE)

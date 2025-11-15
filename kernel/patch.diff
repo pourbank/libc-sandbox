@@ -1,0 +1,48 @@
+diff '--color=auto' -ruN linux-6.17.7-clean/arch/x86/entry/syscalls/syscall_64.tbl linux-6.17.7-modified/arch/x86/entry/syscalls/syscall_64.tbl
+--- linux-6.17.7-clean/arch/x86/entry/syscalls/syscall_64.tbl	2025-11-02 18:48:05.000000000 +0530
++++ linux-6.17.7-modified/arch/x86/entry/syscalls/syscall_64.tbl	2025-11-15 00:10:59.348601163 +0530
+@@ -393,6 +393,7 @@
+ 467	common	open_tree_attr		sys_open_tree_attr
+ 468	common	file_getattr		sys_file_getattr
+ 469	common	file_setattr		sys_file_setattr
++470 common  dummy               sys_dummy
+ 
+ #
+ # Due to a historical design error, certain syscalls are numbered differently
+diff '--color=auto' -ruN linux-6.17.7-clean/include/linux/syscalls.h linux-6.17.7-modified/include/linux/syscalls.h
+--- linux-6.17.7-clean/include/linux/syscalls.h	2025-11-02 18:48:05.000000000 +0530
++++ linux-6.17.7-modified/include/linux/syscalls.h	2025-11-15 00:15:57.158760453 +0530
+@@ -1327,4 +1327,6 @@
+ 		int __user *optlen);
+ int __sys_setsockopt(int fd, int level, int optname, char __user *optval,
+ 		int optlen);
++
++asmlinkage long sys_dummy(int libcallno);
+ #endif
+diff '--color=auto' -ruN linux-6.17.7-clean/kernel/sys.c linux-6.17.7-modified/kernel/sys.c
+--- linux-6.17.7-clean/kernel/sys.c	2025-11-02 18:48:05.000000000 +0530
++++ linux-6.17.7-modified/kernel/sys.c	2025-11-15 00:18:44.180108105 +0530
+@@ -80,6 +80,9 @@
+ 
+ #include "uid16.h"
+ 
++void (*hook_ptr)(int) = NULL;
++EXPORT_SYMBOL(hook_ptr);
++
+ #ifndef SET_UNALIGN_CTL
+ # define SET_UNALIGN_CTL(a, b)	(-EINVAL)
+ #endif
+@@ -2989,3 +2992,13 @@
+ 	return 0;
+ }
+ #endif /* CONFIG_COMPAT */
++
++SYSCALL_DEFINE1(dummy, int, libcallno)
++{
++    if (hook_ptr) {
++        hook_ptr(libcallno);
++    } else {
++        printk(KERN_INFO "Monitor module not loaded.\n");
++    }
++    return 0;
++}

@@ -1,6 +1,2 @@
 venv/
-llvm-passes/build/
-llvm-passes/output
-monitor
-kernel_src
-benchmark
+kernel/

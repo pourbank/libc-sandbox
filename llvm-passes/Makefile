@@ -4,6 +4,7 @@ OUTPUT_DIR  := output
 SCRIPTS_DIR := scripts
 SRC_DIR     := src
 TEST_DIR    := test
+ROOTFS_BIN  := ../kernel/rootfs/bin
 
 CXX         := clang++
 CC          := clang
@@ -47,7 +48,7 @@ all: $(LIBC_CFG_PNG) $(SYSCALL_CFG_PNG) $(TEST_EXE)
 
 
 clean:
-	@echo "Cleaning up..."
+	@echo "Cleaning Up"
 	@rm -f $(TEST_BC) $(TEST_INSTRUMENTED_BC) $(TEST_EXE)
 	@rm -f $(GENERATED_HEADERS)
 	@rm -f test_cfg.dot
@@ -98,3 +99,4 @@ $(TEST_INSTRUMENTED_BC): $(TEST_BC) $(INSTRUMENT_PASS_SO)
 $(TEST_EXE): $(TEST_INSTRUMENTED_BC)
 	@echo "Compiling final executable $@"
 	@$(CC) $< -static -o $@
+	@cp $@ $(ROOTFS_BIN)

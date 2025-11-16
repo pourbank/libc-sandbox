@@ -10,6 +10,10 @@ cd llvm-passes
 make clean
 cd ..
 
+cd benchmark
+make clean
+cd ..
+
 cd kernel
 make clean
 cd ..

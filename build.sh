@@ -16,6 +16,11 @@ cd monitor
 make
 cd ..
 
+echo "Building mbedTLS"
+cd benchmark
+make
+cd ..
+
 echo "Building File System"
 cd kernel
 make initramfs

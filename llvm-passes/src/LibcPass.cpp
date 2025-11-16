@@ -11,6 +11,8 @@
 #include <string>
 #include <utility>
 #include <fstream>
+#include <vector>
+#include <set>
 
 #include "CallNames.cpp"
 #include "FSM.cpp"
@@ -38,22 +40,27 @@ namespace cfg {
 
     fsm::nfaNode* libcCFGPass::scanCallInstructions(llvm::BasicBlock &bb, llvm::Function &func) {
         auto bbKey = std::make_pair(&func, &bb);
-        auto entryKey = std::make_pair(&func, &func.getEntryBlock());
+        fsm::nfaNode* currentNode = nullptr;
         if(bbId.find(bbKey) == bbId.end()) {
             bbId[bbKey] = createNode();
         }
-        fsm::nfaNode* currentNode = bbId[bbKey];
-        if(bbId.find(entryKey) == bbId.end()) {
-            bbId[entryKey] = createNode();
+        currentNode = bbId[bbKey];
+        fsm::nfaNode* funcEntryNode = nullptr;
+        if (!func.isDeclaration() && !func.empty()) {
+            auto entryKey = std::make_pair(&func, &func.getEntryBlock());
+            if(bbId.find(entryKey) == bbId.end()) {
+                bbId[entryKey] = createNode();
+            }
+            funcEntryNode = bbId[entryKey];
         }
-        fsm::nfaNode* funcEntryNode = bbId[entryKey];
         for(llvm::Instruction &inst : bb) {
             if(auto *callInst = llvm::dyn_cast<llvm::CallInst>(&inst)) {
                 if(llvm::Function *calledFunc = callInst->getCalledFunction()) {
                     std::string funcName = calledFunc->getName().str();
                     if(funcName == func.getName().str()) {
-                        currentNode->edges.push_back({funcEntryNode, "ε"});
-                    } else if(calledFunc->isDeclaration()) {
+                        if (funcEntryNode)
+                            currentNode->edges.push_back({funcEntryNode, "ε"});
+                    } else if(calledFunc->isDeclaration() || calledFunc->empty()) {
                         fsm::nfaNode* nextNode = createNode();
                         if(isLibcFunction(funcName)){
                             funcName = "call:" + funcName;
@@ -67,18 +74,26 @@ namespace cfg {
                             currentNode->edges.push_back({nextNode, "ε"});
                         currentNode = nextNode;
                     } else {
-                        llvm::BasicBlock &calledFuncEntryBB = calledFunc->getEntryBlock();
-                        if(bbId.find({calledFunc, &calledFuncEntryBB}) == bbId.end()) {
-                            for(llvm::BasicBlock &calleeBB : *calledFunc) {
-                                bbId[{calledFunc, &calleeBB}] = createNode();
+                        if (!calledFunc->isDeclaration() && !calledFunc->empty()) {
+                            llvm::BasicBlock &calledFuncEntryBB = calledFunc->getEntryBlock();
+                            if(bbId.find({calledFunc, &calledFuncEntryBB}) == bbId.end()) {
+                                for(llvm::BasicBlock &calleeBB : *calledFunc) {
+                                    bbId[{calledFunc, &calleeBB}] = createNode();
+                                }
                             }
+                            fsm::nfaNode* calledFuncEntryNode = bbId.at({calledFunc, &calledFuncEntryBB});
+                            std::string label = "call:" + calledFunc->getName().str();
+                            currentNode->edges.push_back({calledFuncEntryNode, label});
+                            fsm::nfaNode* nextNode = createNode();
+                            if (funcExitNode.count(calledFunc)) {
+                                funcExitNode.at(calledFunc)->edges.push_back({nextNode, "ε"});
+                            }
+                            currentNode = nextNode;
+                        } else {
+                            fsm::nfaNode* nextNode = createNode();
+                            currentNode->edges.push_back({nextNode, "ε"});
+                            currentNode = nextNode;
                         }
-                        fsm::nfaNode* calledFuncEntryNode = bbId.at({calledFunc, &calledFuncEntryBB});
-                        std::string label = "call:" + calledFunc->getName().str();
-                        currentNode->edges.push_back({calledFuncEntryNode, label});
-                        fsm::nfaNode* nextNode = createNode();
-                        funcExitNode.at(calledFunc)->edges.push_back({nextNode, "ε"});
-                        currentNode = nextNode;
                     }
                 }
             }
@@ -119,37 +134,50 @@ namespace cfg {
     }
 
     llvm::PreservedAnalyses libcCFGPass::run(llvm::Module &Mod, llvm::AnalysisManager<llvm::Module> &mngr) {
+        nodeCounter = 0;
         startNode = createNode();
-
+        std::vector<llvm::Function*> funcList;
         for(llvm::Function &func : Mod) {
-            if(func.isDeclaration()) continue;
+            if(func.isDeclaration() || func.empty()) continue;
+            funcList.push_back(&func);
+        }
+        for(llvm::Function *fptr : funcList) {
+            llvm::Function &func = *fptr;
             auto entryKey = std::make_pair(&func, &func.getEntryBlock());
             bbId[entryKey] = createNode();
         }
-
-        for(llvm::Function &func : Mod){
-            if (func.isDeclaration()) continue;
+        for(llvm::Function *fptr : funcList){
+            llvm::Function &func = *fptr;
             fsm::nfaNode* exitNode = createNode();
             funcExitNode[&func] = exitNode;
         }
-
         llvm::Function *mainFunc = Mod.getFunction("main");
-        if (funcExitNode.count(mainFunc)) {
+        if (mainFunc && funcExitNode.count(mainFunc)) {
             funcExitNode.at(mainFunc)->isFinalState = true;
         }
-        fsm::nfaNode* entryNode = bbId.at({mainFunc, &mainFunc->getEntryBlock()});
-        startNode->edges.push_back({entryNode, "ε"});
+        if (mainFunc && bbId.count({mainFunc, &mainFunc->getEntryBlock()})) {
+            fsm::nfaNode* entryNode = bbId.at({mainFunc, &mainFunc->getEntryBlock()});
+            startNode->edges.push_back({entryNode, "ε"});
+        } else if (mainFunc && !mainFunc->isDeclaration() && !mainFunc->empty()) {
+            auto ek = std::make_pair(mainFunc, &mainFunc->getEntryBlock());
+            if (bbId.find(ek) == bbId.end()) bbId[ek] = createNode();
+            startNode->edges.push_back({bbId[ek], "ε"});
+        }
 
-        for(llvm::Function &func : Mod){
-            if(func.isDeclaration()) continue;
-
-            for(llvm::BasicBlock &bb : func) {
+        for(llvm::Function *fptr : funcList){
+            llvm::Function &func = *fptr;
+            std::vector<llvm::BasicBlock*> bbs;
+            for(llvm::BasicBlock &bb : func) bbs.push_back(&bb);
+            for(llvm::BasicBlock *bbptr : bbs) {
+                llvm::BasicBlock &bb = *bbptr;
                 fsm::nfaNode* lastNodeId = scanCallInstructions(bb, func);
+                if (!lastNodeId) continue;
                 llvm::Instruction *terminator = bb.getTerminator();
                 if(!terminator) continue;
                 if (llvm::isa<llvm::ReturnInst>(terminator)) {
                     std::string label = "ret:" + func.getName().str();
-                    lastNodeId->edges.push_back({funcExitNode.at(&func), label});
+                    if (funcExitNode.count(&func))
+                        lastNodeId->edges.push_back({funcExitNode.at(&func), label});
                 }
                 for(unsigned i = 0; i < terminator->getNumSuccessors(); i++) {
                     llvm::BasicBlock *successor = terminator->getSuccessor(i);

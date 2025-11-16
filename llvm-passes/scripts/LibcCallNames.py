@@ -1,4 +1,5 @@
 import subprocess
+from pathlib import Path
 
 command = "nm -D /usr/lib/x86_64-linux-gnu/libc.so.6 | grep -E ' (T|W) ' | awk '{print $3}' | cut -d@ -f1 | sort -u"
 
@@ -19,6 +20,9 @@ for line in callnames.splitlines():
 header.append("};")
 header.append("")
 
-out_path = "include/CallNames.h"
+script_dir = Path(__file__).parent.resolve()
+out_path = script_dir.parent / "include" / "CallNames.h"
+out_path.parent.mkdir(parents=True, exist_ok=True)
+
 with open(out_path, "w") as f:
     f.write("\n".join(header))

@@ -45,10 +45,9 @@ all: $(LIBC_CFG_PNG) $(SYSCALL_CFG_PNG) $(TEST_EXE)
 	@echo "Build complete."
 	@echo "Graphs in: $(OUTPUT_DIR)"
 	@echo "Executable at: $(TEST_EXE)"
-
+	@cp $(TEST_EXE) $(ROOTFS_BIN)/test
 
 clean:
-	@echo "Cleaning Up"
 	@rm -f $(TEST_BC) $(TEST_INSTRUMENTED_BC) $(TEST_EXE)
 	@rm -f $(GENERATED_HEADERS)
 	@rm -f test_cfg.dot
@@ -99,4 +98,3 @@ $(TEST_INSTRUMENTED_BC): $(TEST_BC) $(INSTRUMENT_PASS_SO)
 $(TEST_EXE): $(TEST_INSTRUMENTED_BC)
 	@echo "Compiling final executable $@"
 	@$(CC) $< -static -o $@
-	@cp $@ $(ROOTFS_BIN)

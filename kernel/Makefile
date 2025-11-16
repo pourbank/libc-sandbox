@@ -17,16 +17,16 @@ BUSYBOX_LINK_TARGETS := $(foreach link,$(BUSYBOX_LINKS),$(ROOTFS_DIR)/bin/$(link
 ROOTFS_CPIO_FILE := rootfs.cpio.gz
 
 KERNEL_IMAGE_PATH := $(KERNEL_SRC_DIR)/arch/x86_64/boot/bzImage
+KERNEL_PATCH_STAMP := .patched
 
-.DEFAULT_GOAL := all
-
-.PHONY: all kernel build rootfs initramfs clean
+.PHONY: all build rootfs initramfs clean
 
 all: build initramfs
 
-kernel: $(KERNEL_SRC_DIR) $(PATCH_FILE)
+$(KERNEL_PATCH_STAMP): $(KERNEL_SRC_DIR) $(PATCH_FILE)
 	@echo "Patching Linux Kernel Source"
 	@patch -p1 -d $(KERNEL_SRC_DIR) < $(PATCH_FILE)
+	@touch $@
 
 $(KERNEL_SRC_DIR): $(KERNEL_TARBALL)
 	@echo "Extracting Linux Kernel Source"
@@ -38,14 +38,14 @@ $(KERNEL_TARBALL):
 
 build: $(KERNEL_IMAGE_PATH)
 
-$(KERNEL_IMAGE_PATH): kernel
+$(KERNEL_IMAGE_PATH): $(KERNEL_PATCH_STAMP)
 	@echo "Building Linux Kernel"
 	@$(MAKE) -C $(KERNEL_SRC_DIR) defconfig
 	@$(MAKE) -C $(KERNEL_SRC_DIR) -j$(shell nproc)
 
 initramfs: $(ROOTFS_CPIO_FILE)
 
-rootfs: $(ROOTFS_SUBDIRS) $(BUSYBOX_LINK_TARGETS)
+rootfs: $(BUSYBOX_LINK_TARGETS) $(ROOTFS_SUBDIRS)
 
 $(ROOTFS_CPIO_FILE): rootfs
 	@echo "Creating initramfs CPIO archive"
@@ -54,14 +54,14 @@ $(ROOTFS_CPIO_FILE): rootfs
 $(BUSYBOX_LINK_TARGETS): $(BUSYBOX_BIN)
 	@(cd $(ROOTFS_DIR)/bin && ln -sf busybox $(@F))
 
-$(BUSYBOX_BIN):
+$(BUSYBOX_BIN): | $(ROOTFS_DIR)/bin
 	@cp $(shell which busybox) $@
 
 $(ROOTFS_SUBDIRS):
 	@mkdir -p $@
 
 clean:
-	@echo "Cleaning Up"
+	@rm -f $(KERNEL_PATCH_STAMP) 
 	@rm -f $(ROOTFS_CPIO_FILE)
 	@rm -f $(KERNEL_TARBALL)
 	@rm -rf $(KERNEL_SRC_DIR)

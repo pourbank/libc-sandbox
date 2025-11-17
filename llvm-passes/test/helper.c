@@ -10,4 +10,5 @@ int helper_function(void) {
         return -1;   
     }
 
-    return (int) written;  
+    return (int) written; 
+}

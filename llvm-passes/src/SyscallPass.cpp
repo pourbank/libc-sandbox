@@ -11,6 +11,7 @@
 #include <fstream>
 #include <vector>
 #include <set>
+#include <queue>
 
 #include "CallNames.cpp"
 #include "FSM.cpp"
@@ -94,11 +95,7 @@ namespace icfg {
                         currentNode = nextNode;
                     } else if (calledFunc->isDeclaration() || calledFunc->empty()) {
                         fsm::nfaNode* nextNode = createNode();
-                        if(isLibcFunction(funcName)){
-                            continue;
-                        }
-                        else
-                            currentNode->edges.push_back({nextNode, "ε"});
+                        currentNode->edges.push_back({nextNode, "ε"});
                         currentNode = nextNode;
                     } else {
                         if (!calledFunc->isDeclaration() && !calledFunc->empty()) {
@@ -133,10 +130,7 @@ namespace icfg {
         q.push(startNode);
         visited.insert(startNode);
 
-        std::string sourceFile = Mod.getSourceFileName();
-        llvm::StringRef baseNameRef = llvm::sys::path::stem(sourceFile);
-        std::string baseName = baseNameRef.str();
-        std::string filename = baseName + "_cfg.dot";
+        std::string filename = "syscall_cfg.dot";
         std::ofstream outfile(filename);
         outfile << "digraph CFG {\n";
         outfile << "    rankdir=LR;\n";
@@ -177,27 +171,34 @@ namespace icfg {
             fsm::nfaNode* exitNode = createNode();
             funcExitNode[&func] = exitNode;
         }
+
         llvm::Function *mainFunc = Mod.getFunction("main");
-        if (mainFunc && funcExitNode.count(mainFunc)) {
-            funcExitNode.at(mainFunc)->isFinalState = true;
-        }
-        if (mainFunc) {
-            if (bbId.count({mainFunc, &mainFunc->getEntryBlock()})) {
-                fsm::nfaNode* entryNode = bbId.at({mainFunc, &mainFunc->getEntryBlock()});
-                startNode->edges.push_back({entryNode, "ε"});
-            } else if (!mainFunc->isDeclaration() && !mainFunc->empty()) {
-                auto ek = std::make_pair(mainFunc, &mainFunc->getEntryBlock());
-                if (bbId.find(ek) == bbId.end()) bbId[ek] = createNode();
-                startNode->edges.push_back({bbId[ek], "ε"});
-            }
+        std::vector<fsm::nfaNode*> entryNodes;
+        if (mainFunc && bbId.count({mainFunc, &mainFunc->getEntryBlock()})) {
+            entryNodes.push_back(bbId.at({mainFunc, &mainFunc->getEntryBlock()}));
+        } else if (mainFunc && !mainFunc->isDeclaration() && !mainFunc->empty()) {
+            auto ek = std::make_pair(mainFunc, &mainFunc->getEntryBlock());
+            if (bbId.find(ek) == bbId.end()) bbId[ek] = createNode();
+            entryNodes.push_back(bbId[ek]);
         } else {
             for (llvm::Function *fptr : funcList) {
                 llvm::Function &func = *fptr;
                 auto ek = std::make_pair(&func, &func.getEntryBlock());
                 if (bbId.find(ek) == bbId.end()) bbId[ek] = createNode();
-                startNode->edges.push_back({bbId[ek], "ε"});
+                entryNodes.push_back(bbId[ek]);
             }
         }
+        for (fsm::nfaNode* entryNode : entryNodes) {
+            startNode->edges.push_back({entryNode, "ε"});
+        }
+        if (mainFunc && funcExitNode.count(mainFunc)) {
+            funcExitNode.at(mainFunc)->isFinalState = true;
+        } else {
+            for (auto &pair : funcExitNode) {
+                pair.second->isFinalState = true;
+            }
+        }
+
         for(llvm::Function *fptr : funcList){
             llvm::Function &func = *fptr;
             std::vector<llvm::BasicBlock*> bbs;
@@ -233,8 +234,17 @@ namespace icfg {
 extern "C" LLVM_ATTRIBUTE_WEAK ::llvm::PassPluginLibraryInfo
 llvmGetPassPluginInfo() {
     return {
-        LLVM_PLUGIN_API_VERSION, "syscallCFGPass", "v0.5",
-        [](llvm::PassBuilder &PB) {
+        .APIVersion = LLVM_PLUGIN_API_VERSION,
+        .PluginName = "syscallCFGPlugin",
+        .PluginVersion = "v0.5",
+        .RegisterPassBuilderCallbacks = [](llvm::PassBuilder &PB) {
+            
+            PB.registerPipelineStartEPCallback(
+                [](llvm::ModulePassManager &MPM, llvm::OptimizationLevel Level) { 
+                    MPM.addPass(icfg::syscallCFGPass());
+                }
+            );
+
             PB.registerPipelineParsingCallback(
                 [](llvm::StringRef Name, llvm::ModulePassManager &MPM,
                    llvm::ArrayRef<llvm::PassBuilder::PipelineElement>) {
@@ -245,6 +255,6 @@ llvmGetPassPluginInfo() {
                     return false;
                 }
             );
-        }
+        },
     };
 }

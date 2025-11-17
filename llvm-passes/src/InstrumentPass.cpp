@@ -62,8 +62,18 @@ namespace instrument {
 extern "C" LLVM_ATTRIBUTE_WEAK ::llvm::PassPluginLibraryInfo
 llvmGetPassPluginInfo() {
     return {
-        LLVM_PLUGIN_API_VERSION, "InstrumentPass", "v0.4",
-        [](llvm::PassBuilder &PB) {
+        // Use your existing plugin details
+        .APIVersion = LLVM_PLUGIN_API_VERSION,
+        .PluginName = "InstrumentPassPlugin",
+        .PluginVersion = "v0.4",
+        .RegisterPassBuilderCallbacks = [](llvm::PassBuilder &PB) {
+            
+            PB.registerPipelineStartEPCallback(
+                [](llvm::ModulePassManager &MPM, llvm::OptimizationLevel Level) { 
+                    // Add your pass here
+                    MPM.addPass(instrument::InstrumentPass());
+                }
+            );
             PB.registerPipelineParsingCallback(
                 [](llvm::StringRef Name, llvm::ModulePassManager &MPM,
                    llvm::ArrayRef<llvm::PassBuilder::PipelineElement>) {
@@ -74,6 +84,6 @@ llvmGetPassPluginInfo() {
                     return false;
                 }
             );
-        }
+        },
     };
 }

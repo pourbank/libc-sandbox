@@ -1,58 +1,52 @@
 BUILD_DIR   := build
 INCLUDE_DIR := include
-OUTPUT_DIR  := output
+OUTPUT_DIR  := ../output
 SCRIPTS_DIR := scripts
 SRC_DIR     := src
 TEST_DIR    := test
-ROOTFS_BIN  := ../kernel/rootfs/bin
+BIN_DIR     := ../kernel/rootfs/bin
 
-CXX         := clang++
-CC          := clang
-PYTHON      := python3
-OPT         := opt
-DOT         := dot
+CXX     := clang++
+CC      := clang
+PYTHON  := python3
+OPT     := opt
+DOT     := dot
 
 LLVM_CXXFLAGS := $(shell llvm-config --cxxflags)
 LLVM_LDFLAGS  := $(shell llvm-config --ldflags --libs --system-libs)
 
-CXXFLAGS    := -std=c++17 -fPIC $(LLVM_CXXFLAGS)
-LDFLAGS     := -shared $(LLVM_LDFLAGS)
+CXXFLAGS := -std=c++17 -fPIC $(LLVM_CXXFLAGS)
+LDFLAGS  := -shared $(LLVM_LDFLAGS)
 
 CALLNAMES_H       := $(INCLUDE_DIR)/CallNames.h
 DUMMYSYSCALLS_H   := $(INCLUDE_DIR)/DummySyscalls.h
 GENERATED_HEADERS := $(CALLNAMES_H) $(DUMMYSYSCALLS_H)
 
-LIBC_PASS_SO      := $(BUILD_DIR)/LibcPass.so
+LIBC_PASS_SO       := $(BUILD_DIR)/LibcPass.so
 INSTRUMENT_PASS_SO := $(BUILD_DIR)/InstrumentPass.so
-SYSCALL_PASS_SO   := $(BUILD_DIR)/SyscallPass.so
-PASSES            := $(LIBC_PASS_SO) $(INSTRUMENT_PASS_SO) $(SYSCALL_PASS_SO)
+SYSCALL_PASS_SO    := $(BUILD_DIR)/SyscallPass.so
 
-TEST_SRC          := $(TEST_DIR)/test.c
-TEST_BC           := $(TEST_DIR)/test.bc
-TEST_INSTRUMENTED_BC := $(TEST_DIR)/test.instrumented.bc
-TEST_EXE          := $(TEST_DIR)/test
+TEST_SRCS := $(wildcard $(TEST_DIR)/*.c)
+TEST_BCS  := $(patsubst $(TEST_DIR)/%.c,$(OUTPUT_DIR)/%.bc,$(TEST_SRCS))
 
-LIBC_CFG_DOT      := $(OUTPUT_DIR)/test_cfg.dot
-SYSCALL_CFG_DOT   := $(OUTPUT_DIR)/Syscall.dot
-LIBC_CFG_PNG      := $(OUTPUT_DIR)/LibcCFG.png
-SYSCALL_CFG_PNG   := $(OUTPUT_DIR)/SyscallCFG.png
+COMBINED_BC := $(OUTPUT_DIR)/combined.bc
+TEST_EXE    := $(OUTPUT_DIR)/combined
 
 .DEFAULT_GOAL := all
 
-.PHONY: all clean run
+.PHONY: all clean libc_pass instrument_syscall overwrite_instrument
 
-all: $(LIBC_CFG_PNG) $(SYSCALL_CFG_PNG) $(TEST_EXE)
+all: $(TEST_EXE)
 	@echo "Build complete."
-	@echo "Graphs in: $(OUTPUT_DIR)"
-	@echo "Executable at: $(TEST_EXE)"
-	@cp $(TEST_EXE) $(ROOTFS_BIN)/test
 
 clean:
-	@rm -f $(TEST_BC) $(TEST_INSTRUMENTED_BC) $(TEST_EXE)
-	@rm -f $(GENERATED_HEADERS)
-	@rm -f test_cfg.dot
-	@rm -rf $(BUILD_DIR)
+	@rm -f $(OUTPUT_DIR)/*.bc
+	@rm -f $(OUTPUT_DIR)/*.dot
+	@rm -f $(OUTPUT_DIR)/*.png
 	@rm -rf $(OUTPUT_DIR)
+	@rm -f $(GENERATED_HEADERS)
+	@rm -f $(TEST_EXE)
+	@rm -f $(BIN_DIR)/combined
 
 $(BUILD_DIR) $(OUTPUT_DIR):
 	@mkdir -p $@
@@ -65,36 +59,48 @@ $(DUMMYSYSCALLS_H): $(SCRIPTS_DIR)/DummySyscalls.py | $(INCLUDE_DIR)
 	@echo "Generating DummySyscalls.h"
 	@$(PYTHON) $<
 
-$(TEST_BC): $(TEST_SRC)
-	@echo "Compiling $< to bitcode"
-	@$(CC) -emit-llvm -c $< -o $@
 
 $(BUILD_DIR)/%.so: $(SRC_DIR)/%.cpp $(GENERATED_HEADERS) | $(BUILD_DIR)
-	@echo "Compiling LLVM Pass $@"
+	@echo "Building LLVM Pass $@"
 	@$(CXX) $(CXXFLAGS) $< -o $@ $(LDFLAGS)
 
-$(LIBC_CFG_DOT): $(TEST_BC) $(LIBC_PASS_SO) | $(OUTPUT_DIR)
-	@echo "Running Libc Call Graph Pass"
-	@$(OPT) -load-pass-plugin=$(LIBC_PASS_SO) -passes=libc-cfg-pass $< -o /dev/null
-	@mv test_cfg.dot $@
 
-$(SYSCALL_CFG_DOT): $(TEST_BC) $(INSTRUMENT_PASS_SO) $(SYSCALL_PASS_SO) | $(OUTPUT_DIR)
-	@echo "Running Instrumentation + Syscall Graph Pass"
-	@$(OPT) -load-pass-plugin=$(INSTRUMENT_PASS_SO) -load-pass-plugin=$(SYSCALL_PASS_SO) -passes="instrument-pass,syscall-cfg-pass" $< -o /dev/null
-	@mv test_cfg.dot $@
+$(OUTPUT_DIR)/%.bc: $(TEST_DIR)/%.c | $(OUTPUT_DIR)
+	@echo "Compiling $< $@"
+	@$(CC) -emit-llvm -c $< -o $@
 
-$(LIBC_CFG_PNG): $(LIBC_CFG_DOT)
-	@echo "Generating $@"
-	@$(DOT) -Tpng $< -o $@
 
-$(SYSCALL_CFG_PNG): $(SYSCALL_CFG_DOT)
-	@echo "Generating $@"
-	@$(DOT) -Tpng $< -o $@
+$(COMBINED_BC): $(TEST_BCS)
+	@echo "Linking $(COMBINED_BC)"
+	@llvm-link $(TEST_BCS) -o $(COMBINED_BC)
 
-$(TEST_INSTRUMENTED_BC): $(TEST_BC) $(INSTRUMENT_PASS_SO)
-	@echo "Instrumenting bitcode"
-	@$(OPT) -load-pass-plugin=$(INSTRUMENT_PASS_SO) -passes=instrument-pass $< -o $@
 
-$(TEST_EXE): $(TEST_INSTRUMENTED_BC)
-	@echo "Compiling final executable $@"
-	@$(CC) $< -static -o $@
+libc_pass: $(COMBINED_BC) $(LIBC_PASS_SO)
+	@echo "Running libccall pass"
+	@$(OPT) -load-pass-plugin=$(LIBC_PASS_SO) -passes=libc-cfg-pass \
+		$(COMBINED_BC) -o /dev/null
+	@echo "Moving libccall.dot"
+	@mv -f llvm-link_cfg.dot $(OUTPUT_DIR)/libccall.dot
+	@$(DOT) -Tpng $(OUTPUT_DIR)/libccall.dot -o $(OUTPUT_DIR)/libccall.png
+
+
+instrument_syscall: $(COMBINED_BC) $(INSTRUMENT_PASS_SO) $(SYSCALL_PASS_SO)
+	@echo "Running instrument + syscall pass"
+	@$(OPT) -load-pass-plugin=$(INSTRUMENT_PASS_SO) -load-pass-plugin=$(SYSCALL_PASS_SO) \
+		-passes="instrument-pass,syscall-cfg-pass" \
+		$(COMBINED_BC) -o /dev/null
+	@echo "Moving syscall.dot"
+	@mv -f syscall_cfg.dot $(OUTPUT_DIR)/syscall.dot
+	@$(DOT) -Tpng $(OUTPUT_DIR)/syscall.dot -o $(OUTPUT_DIR)/syscall.png
+
+
+overwrite_instrument: $(COMBINED_BC) $(INSTRUMENT_PASS_SO)
+	@echo "Overwriting combined.bc with instrument pass"
+	@$(OPT) -load-pass-plugin=$(INSTRUMENT_PASS_SO) -passes=instrument-pass \
+		$(COMBINED_BC) -o $(COMBINED_BC)
+
+
+$(TEST_EXE): $(COMBINED_BC) libc_pass instrument_syscall overwrite_instrument
+	@echo "Compiling final executable $(TEST_EXE)"
+	@$(CC) $(COMBINED_BC) -static -o $(TEST_EXE)
+	@cp $(TEST_EXE) $(BIN_DIR)

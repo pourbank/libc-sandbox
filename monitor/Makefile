@@ -8,7 +8,7 @@ KDIR := ../kernel/linux-6.17.7
 
 OUTPUT_DIR := $(PWD)/output
 POLICY_SCRIPT := scripts/CreatePolicy.py
-POLICY_LOCAL_FILE := policy.bin
+POLICY_LOCAL_FILE := ../output/policy.bin
 POLICY_DEST_DIR := ../kernel/rootfs/etc
 
 MODULE_DEST_DIR := ../kernel/rootfs/lib/modules
@@ -21,8 +21,7 @@ policy:
 	@pwd
 	@echo "Generating Policy"
 	@python3 $(POLICY_SCRIPT)
-	@cp -f $(POLICY_LOCAL_FILE) $(POLICY_DEST_DIR)/
-	@rm -f $(POLICY_LOCAL_FILE)
+	@cp $(POLICY_LOCAL_FILE) $(POLICY_DEST_DIR)
 
 module:
 	@echo "Building Kernel Module"

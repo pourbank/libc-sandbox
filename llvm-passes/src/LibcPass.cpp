@@ -205,8 +205,18 @@ namespace cfg {
 extern "C" LLVM_ATTRIBUTE_WEAK ::llvm::PassPluginLibraryInfo
 llvmGetPassPluginInfo() {
     return {
-        LLVM_PLUGIN_API_VERSION, "libcCFGPass", "v0.4",
-        [](llvm::PassBuilder &PB) {
+        .APIVersion = LLVM_PLUGIN_API_VERSION,
+        .PluginName = "libcCFGPlugin",
+        .PluginVersion = "v0.4",
+        .RegisterPassBuilderCallbacks = [](llvm::PassBuilder &PB) {
+            
+            PB.registerPipelineStartEPCallback(
+                [](llvm::ModulePassManager &MPM, llvm::OptimizationLevel Level) { 
+                    // Add your pass here
+                    MPM.addPass(cfg::libcCFGPass());
+                }
+            );
+
             PB.registerPipelineParsingCallback(
                 [](llvm::StringRef Name, llvm::ModulePassManager &MPM,
                    llvm::ArrayRef<llvm::PassBuilder::PipelineElement>) {
@@ -217,6 +227,6 @@ llvmGetPassPluginInfo() {
                     return false;
                 }
             );
-        }
+        },
     };
 }

@@ -5,8 +5,8 @@ import sys
 EDGE_RE = re.compile(r'(\d+)\s*->\s*(\d+)\s*\[label="(\d+)"\];')
 NODE_RE = re.compile(r'(\d+)\s*\[.*\];')
 
-dot_file_path = "../llvm-passes/output/Syscall.dot"
-bin_file_path = "policy.bin"
+dot_file_path = "../output/syscall.dot"
+bin_file_path = "../output/policy.bin"
 
 with open(dot_file_path, 'r') as f:
     content = f.read()
